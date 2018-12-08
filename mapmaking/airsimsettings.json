@@ -1,0 +1,20 @@
+Just to show the used settings file with lidar.
+{
+  "SeeDocsAt": "https://github.com/Microsoft/AirSim/blob/master/docs/settings.md",
+  "SettingsVersion": 1.2,
+  "DefaultSensors":
+  {
+  "LidarSensor1": { 
+					"SensorType": 6,
+					"Enabled" : true,
+					"NumberOfChannels": 16,
+					"RotationsPerSecond": 5,
+					"PointsPerSecond": 100000,
+					"X": 0, "Y": 0, "Z": -1,
+					"Roll": 0, "Pitch": 0, "Yaw" : 0,
+					"VerticalFOVUpper": 15,
+					"VerticalFOVLower": -15,					
+					"DrawDebugPoints": true
+				}
+	}
+}
