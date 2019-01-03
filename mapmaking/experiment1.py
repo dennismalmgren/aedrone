@@ -4,10 +4,15 @@ import matplotlib.pyplot as plt
 #import setup_path 
 import airsim
 import pprint
+import time
 
 class SurfelMap:
     def __init__(self):
-        surfels = []
+        self.surfels = []
+    
+    def addSurfel(self, surfel):
+        self.surfels.append(surfel)
+
 
 class Surfel:
     def __init__(self, pos, normal, radius, timestamp):
@@ -68,12 +73,12 @@ class LidarDrone:
         points = self.read_lidarData()
         return points
 
-def save_lidarData(points):
+def save_lidarData(points, index=0):
     if points.size != 0:
-        np.save('testLidar.npy', points)    # .npy extension is added if not given
+        np.save('testLidar' + str(index) + '.npy', points)    # .npy extension is added if not given
 
-def load_lidarData():
-    points = np.load('testLidar.npy')    # .npy extension is added if not given
+def load_lidarData(index=0):
+    points = np.load('testLidar' + str(index) + '.npy')    # .npy extension is added if not given
     return points
 
 def dist_fun(point):
@@ -88,9 +93,9 @@ def create_uv_map(w, h, fovup, fov, points):
         zval = pt[2]
         dist = dist_fun(pt)
         ucoord = 0.5*(1-np.arctan2(yval, xval)/np.pi) * w
-        u = int(round(ucoord))
+        u = int(ucoord)
         vcoord = (1-(np.arcsin(zval/dist) + fovup) / fov) * h
-        v = int(round(vcoord))
+        v = int(vcoord)
         uvmap[u, v, 0:3] = pt
         uvmap[u, v, 3] = 1
     return uvmap
@@ -136,43 +141,98 @@ def create_empty_map(w, h):
     emap = np.zeros([w, h, 4])
     return emap
 
+def gatherLidarData():
+    drone = LidarDrone()
+    points = drone.prepare_and_read_lidarData()
+    save_lidarData(points)
+    points = drone.read_lidarData()
+    save_lidarData(points, 1)
+
+def clamp(x, u, l):
+    return np.nanmin([u, np.nanmax([x, l])])
+
 def main():
-    #drone = LidarDrone()
+   # gatherLidarData()
+    surfelMap = SurfelMap()
 
-    #points = drone.prepare_and_read_lidarData()
-   # for i in range(4):
-   #     read_lidarData()
-
-    #save_lidarData(points)
-    #if points.size == 0:
-    #    print('no points')
-    #    return
-
-    points = load_lidarData()
-
-    print('Preprocessing')
-    fovup = 30
-    fovdown = 0
+    fovup = 15
+    fovdown = -15
     fov = fovup - fovdown
+    fovhor = 360
+
     #Size of maps
     w = 50
     h = 5
+    p = np.max([w / fovhor, h / fov]) # pixel size
+    points1 = load_lidarData()
+    #So lets imagine points1 are for t=0
 
+    points2 = load_lidarData(1)
+    #and points2 are for t=1
+
+    #that gives us:
+
+    print('1. Preprocessing')
     #Create uvmap and normal map, these are for the frame
-    uvmap = create_uv_map(w, h, fovup, fov, points)
-    nmap = create_n_map(w, h, uvmap)
+    V_D = create_uv_map(w, h, fovup, fov, points1)
+    N_D = create_n_map(w, h, V_D)
 
-    #now create uvmap and normal map for the model
-    uvmap_m = create_empty_map(w, h)
-    nmap_m = create_empty_map(w, h)
-
-    #Create image
-    #lets do greyscale
+    print('2. Map Representation')
+    #There is none, obviously. so it's empty.
+    V_M = create_empty_map(w, h)
+    N_M = create_empty_map(w, h)
+    #At the last pose estimate TW_C0
+    print('3. Odometry Estimation')
+    #easy
     T_W_C0 = np.eye(4)
-    #Now we need TC0_C1
+    print('4. Map Update')
+    #Initialize surfels for previously unseen areas
+    #Given the current pose T_W_C0
+    #integrate the points inside V_D into the surfel map
+    for x in range(w):
+        for y in range(h):
+            vs = V_D[x, y, :]
+            ns = N_D[x, y, :]
+            rs = np.sqrt(2) * np.linalg.norm(vs) * p / clamp(-np.sum(vs * ns) / np.linalg.norm(vs), 0.5, 1.0)
+            #ignore crossovers with existing surfels.
+            surfel = Surfel(vs, ns, rs, time.time())
+            surfelMap.addSurfel(surfel)
 
-    img_n = create_image(h, w, nmap)
-    img_uv = create_image(h, w, uvmap)
+            #Project vs to u, v: should actually be x, y
+            #xval = vs[0]
+            #yval = vs[1]
+            #zval = vs[2]
+            #dist = dist_fun(pt)
+            #ucoord = 0.5*(1-np.arctan2(yval, xval)/np.pi) * w
+            #u = int(ucoord)
+            #vcoord = (1-(np.arcsin(zval/dist) + fovup) / fov) * h
+            #v = int(vcoord)
+
+            #V_D = np.zeros([w, h, 4])
+
+    print('5. Loop Closure Detection')
+    #None in phase 1
+    print('6. Loop Closure Verification')
+    #None in phase 1
+    print('7. Pose graph optimization')
+    #None in phase 1
+
+    #Now we enter time step 2, t = 1
+    #snap we need time stamps from the actual thing...
+    print('1. Preprocessing')
+    V_D = create_uv_map(w, h, fovup, fov, points2)
+    N_D = create_n_map(w, h, V_D)
+    print('2. Map Representation')
+
+    print('3. Odometry Estimation')
+    print('4. Map Update')
+    print('5. Loop Closure Detection')
+    print('6. Loop Closure Verification')
+    print('7. Pose graph optimization')
+
+
+    #img_n = create_image(h, w, N_D)
+    #img_uv = create_image(h, w, V_D)
 
   #  img = create_image(h, w, uvmap)
     plt.imshow(img_n)
