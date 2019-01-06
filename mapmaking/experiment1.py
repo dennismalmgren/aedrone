@@ -92,6 +92,14 @@ def create_uv_map(w, h, fovup, fov, points):
         yval = pt[1]
         zval = pt[2]
         dist = dist_fun(pt)
+        
+      #  gyaw = np.arctan2(yval, xval)
+      #  gpitch = -np.arcsin(zval/dist)
+      #  x = (-np.arctan2(yval, xval) / np.pi )
+      #  y = 1 - 2.0 * (-np.arcsin(zval/dist) + fovup) / fov
+      #  z = constrained (-1, 1)
+
+        #ucoord = (0.5 + 0.5 * x) * w 
         ucoord = 0.5*(1-np.arctan2(yval, xval)/np.pi) * w
         u = int(ucoord)
         vcoord = (1-(np.arcsin(zval/dist) + fovup) / fov) * h
@@ -154,7 +162,7 @@ def clamp(x, u, l):
 def main():
    # gatherLidarData()
     surfelMap = SurfelMap()
-
+    timestamp = 0
     fovup = 15
     fovdown = -15
     fov = fovup - fovdown
@@ -167,37 +175,63 @@ def main():
     points1 = load_lidarData()
     #So lets imagine points1 are for t=0
 
-    points2 = load_lidarData(1)
     #and points2 are for t=1
 
     #that gives us:
-
+    T_W_C0 = np.eye(4)
+    
     print('1. Preprocessing')
     #Create uvmap and normal map, these are for the frame
     V_D = create_uv_map(w, h, fovup, fov, points1)
     N_D = create_n_map(w, h, V_D)
 
     print('2. Map Representation')
-    #There is none, obviously. so it's empty.
-    V_M = create_empty_map(w, h)
-    N_M = create_empty_map(w, h)
+    #There is no rendered map representation, skip
+
     #At the last pose estimate TW_C0
     print('3. Odometry Estimation')
-    #easy
-    T_W_C0 = np.eye(4)
+    #Missing input - Mactive, skip. 
+
     print('4. Map Update')
-    #Initialize surfels for previously unseen areas
-    #Given the current pose T_W_C0
-    #integrate the points inside V_D into the surfel map
+    #A frame has vertex map, normal map, points, T_W_CX, residual map (?),
+    #so current frame is V_D, N_D, points1, T_W_C0, NULL
+    #and globals are width, height, surfel map
+    #surfel has x, y, z, radius, nx, ny, nz
+
+    #t = 0, so need T_W_C0, check
+    #need V_D, check!
+    #need N_D, check!
+    #integrates points inside V_D into the surfel map
+    #use some measurements to initialize a new surfel.
+    #use some measurements to update existing.
+    #as its' a completely empty map
+    #all (maybe overlap ???) should be used to initialize.
+    #so this is map -> update (T_W_C0, 
+    #we probably need data_surfels_ in a GlBuffer.
+    #using initialize_feedback_  gltransformfeedback
+    
+ #*  Transform feedbacks can be used to capture transformed vertex data before the rasterization stage,
+ #*  just before clipping. This enables the program to record data and use this for later processing in
+ #*  the rendering pipeline.
+
+    #(0.) generate depth-buffered indexmap for updating the surfels: This tells us, which
+    # surfels are currently seen...
+    
+    #1. Render indexmap. Nothing to render (current surfelmap).
+    #(1.) update surfels with measurements & generate index map...
+
+    #2. Generate data surfels. Seems to be radiusconfidence. Unsure. 
+    #(2.) generate surfels and determine associated surfels in model...
+    #Generate data surfels. Skip associated surfels in model for now.
+    dataSurfels = []
     for x in range(w):
         for y in range(h):
-            vs = V_D[x, y, :]
-            ns = N_D[x, y, :]
-            rs = np.sqrt(2) * np.linalg.norm(vs) * p / clamp(-np.sum(vs * ns) / np.linalg.norm(vs), 0.5, 1.0)
+            vertex = V_D[x, y, :]
+            normal = N_D[x, y, :]
+            radius = np.sqrt(2) * np.linalg.norm(vertex) * p / clamp(-np.sum(vertex * normal) / np.linalg.norm(vertex), 0.5, 1.0)
             #ignore crossovers with existing surfels.
-            surfel = Surfel(vs, ns, rs, time.time())
-            surfelMap.addSurfel(surfel)
-
+            surfel = Surfel(vertex, normal, radius, timestamp)
+            dataSurfels.append(surfel)
             #Project vs to u, v: should actually be x, y
             #xval = vs[0]
             #yval = vs[1]
@@ -209,6 +243,14 @@ def main():
             #v = int(vcoord)
 
             #V_D = np.zeros([w, h, 4])
+    #3. Update surfels. pose, inv pose, frame
+    #update step: acts on surfels_ so empty. nada.
+    #initialize step: 
+
+    #4. Copy surfels - add old and new / not updated surfels
+    #(4.) finally add old & new surfels.
+
+    #5. update active submaps - don't use this
 
     print('5. Loop Closure Detection')
     #None in phase 1
@@ -219,6 +261,8 @@ def main():
 
     #Now we enter time step 2, t = 1
     #snap we need time stamps from the actual thing...
+    points2 = load_lidarData(1)
+
     print('1. Preprocessing')
     V_D = create_uv_map(w, h, fovup, fov, points2)
     N_D = create_n_map(w, h, V_D)
@@ -235,10 +279,10 @@ def main():
     #img_uv = create_image(h, w, V_D)
 
   #  img = create_image(h, w, uvmap)
-    plt.imshow(img_n)
-    plt.figure()
-    plt.imshow(img_uv)
-    plt.show()
+   # plt.imshow(img_n)
+   # plt.figure()
+   # plt.imshow(img_uv)
+   # plt.show()
 
 if __name__ == "__main__":
     main()
