@@ -4,7 +4,13 @@ import matplotlib.pyplot as plt
 #import setup_path 
 import airsim
 import pprint
+<<<<<<< HEAD
+from airsim.types import *
 import time
+import math
+=======
+import time
+>>>>>>> 5f17f2333632b3dd1bbe1df9890ec608dda0c6e3
 
 class SurfelMap:
     def __init__(self):
@@ -47,13 +53,12 @@ class LidarDrone:
             points = np.array([])
         else:
             points = self.parse_lidarData(lidarData)
-            print("\tReading: time_stamp: %d number_of_points: %d" % (lidarData.time_stamp, len(points)))
-            print("\t\tlidar position: %s" % (pprint.pformat(lidarData.pose.position)))
-            print("\t\tlidar orientation: %s" % (pprint.pformat(lidarData.pose.orientation)))
+            #print("\tReading: time_stamp: %d number_of_points: %d" % (lidarData.time_stamp, len(points)))
+            #print("\t\tlidar position: %s" % (pprint.pformat(lidarData.pose.position)))
+            #print("\t\tlidar orientation: %s" % (pprint.pformat(lidarData.pose.orientation)))
         return points
 
-    def prepare_and_read_lidarData(self):
-    
+    def prepare(self):
         # connect to the AirSim simulator
         self.client = airsim.MultirotorClient()
         self.client.confirmConnection()
@@ -65,20 +70,122 @@ class LidarDrone:
         print("state: %s" % s)
 
         airsim.wait_key('Press any key to takeoff')
+
+    def convertRoute(self, starting, route):
+        newRoute = [self.shiftz([x1 - x2 for (x1, x2) in zip(p, starting)]) for p in route]
+        return newRoute
+
+    def shiftz(self, vec):
+        vec[2] = -vec[2]
+        return airsim.Vector3r(vec[0], vec[1], vec[2])
+
+    #Starting position is map specific. To get a relative path we measure coordinates in the editor
+    #map overview and set as waypoints. Then we subtract the starting point and invert the relative z coordinate
+    #to obtain parameters to send to move async.
+    #this is the starting position, in airsim coordinates, in the Blocks environment
+
+    def starting(self):
+        return [56.90, -1, 2.02]
+
+    def toEuler(self, quat):
+        #Equations from wikipedia https://en.wikipedia.org/wiki/Conversion_between_quaternions_and_Euler_angles
+        #Roll
+        sinr_cosp = 2 * (quat.w_val * quat.x_val + quat.y_val * quat.z_val)
+        cosr_cosp = 1 - 2 * (quat.x_val * quat.x_val + quat.y_val * quat.y_val)
+        roll = math.atan2(sinr_cosp, cosr_cosp)
+
+        #Pitch
+        sinp = 2 * (quat.w_val * quat.y_val - quat.z_val * quat.x_val)
+        if (math.fabs(sinp) >= 1):
+            pitch = math.copysign(np.pi / 2, sinp)
+        else:
+            pitch = math.asin(sinp)
+
+        #Yaw
+        siny_cosp = 2 * (quat.w_val * quat.z_val + quat.x_val * quat.y_val)
+        cosy_cosp = 1 - 2 * (quat.y_val * quat.y_val + quat.z_val * quat.z_val)
+        yaw = math.atan2(siny_cosp, cosy_cosp)
+
+        return [roll, pitch, yaw]
+    
+    def set_strafe_travel_route(self, route, speed):
+        return self.client.moveOnPathAsync(route, speed)
+    
+    def set_travel_route(self, route, speed):
+        return self.client.moveOnPathAsync(route, speed, drivetrain = DrivetrainType.ForwardOnly, yaw_mode = YawMode(False))
+
+    def travel_core(self, routeFun, speed, timeout, travel_route_fun):
+        #Coordinates are in NED system North East Down (X Y Z).
+        #Starting position is always (0 0 0) while Unreal 
+        #coordinates are based on the environment and Z is upwards.
+        # so here we define our route based on inspection in the unreal editor
+        # and then translate it to unreal system. it will be translated back 
+        # during the api calls.
+        #1000 per block!
+        starting = self.starting()
+        route = routeFun()
+        route = self.convertRoute(starting, route)
+        self.pathCompleted = False
         self.client.takeoffAsync().join()
+        currsecs = time.time()
+        pathmovement = travel_route_fun(route, speed)
+        
+        newsecs = time.time()
+        scancount = 0
+        scanarray = []
+        posearray = []
+        orientationarray = []
+        while newsecs - currsecs < timeout:
+            scan = self.read_lidarData()
+            state = self.client.getMultirotorState()
+            position = state.kinematics_estimated.position
+            orientation = state.kinematics_estimated.orientation
+            rpy = self.toEuler(orientation)
+            scanarray.append(scan)
+            posearray.append(position)
+            orientationarray.append(rpy)
 
-        state = self.client.getMultirotorState()
-        print("state: %s" % pprint.pformat(state))
+            scancount = scancount + 1
+            time.sleep(0)
+            newsecs = time.time()
+        print(scancount)
 
-        points = self.read_lidarData()
-        return points
+        pathmovement.join()
+        self.client.hoverAsync().join() # And done.
+        return scanarray, posearray, orientationarray
+
+    #Travel along the route, with independent nose direction. Causes less yawing to get there.
+    def travel_strafe_route(self, routeFun, speed, timeout):
+        return self.travel_core(routeFun, speed, timeout, self.set_strafe_travel_route)
+
+    #Travel along the route, with the front of the drone in the travel direction. Causes more yawing to get there.
+    def travel_route(self, routeFun, speed, timeout):
+        return self.travel_core(routeFun, speed, timeout, self.set_travel_route)
+
+    #Analyzed route, circles around some pillars.
+    def getFirstRoute(self):
+        route = [[75, 27.5, 7], [105, 27.5, 7], [105, 82.5, 7], [55, 82.5, 7], [57, -1, 7]]
+        return route
+
+    #Test route, moves back and forth, to verify function accuracy without
+    #having to go through a long route. Interrupting the unreal editor in the middle of a long route causes a hang.
+    def getShortRoute(self):
+        starting = self.starting()
+        route = [[75, 27.5, 7], starting]
+        return route
+
 
 def save_lidarData(points, index=0):
     if points.size != 0:
         np.save('testLidar' + str(index) + '.npy', points)    # .npy extension is added if not given
 
+<<<<<<< HEAD
+def load_lidarData(filename='testLidar.npy'):
+    points = np.load(filename)    # .npy extension is added if not given
+=======
 def load_lidarData(index=0):
     points = np.load('testLidar' + str(index) + '.npy')    # .npy extension is added if not given
+>>>>>>> 5f17f2333632b3dd1bbe1df9890ec608dda0c6e3
     return points
 
 def dist_fun(point):
@@ -149,6 +256,48 @@ def create_empty_map(w, h):
     emap = np.zeros([w, h, 4])
     return emap
 
+<<<<<<< HEAD
+def main():
+#Convert poses
+    poses = np.load('scan_round_3_pose.npy')    
+    newposes = [[p.x_val, p.y_val, p.z_val] for p in poses]
+    np.save('scan_round_3_poses.npy', newposes)
+
+    #Convert points:
+    #counts = np.load('scan_round_3_counts.npy')
+    #    counter = 0
+   # for pose in poses:
+     #   filespecifier = '{0:05d}'.format(counter)
+     #   np.save('scan/scan_round_3_' + filespecifier, scan)
+     #   counter = counter + 1
+
+
+def fn_2():
+    drone = LidarDrone()
+    #lets just ignore the fact that it's bouncing
+
+    drone.prepare()
+    scanarray, posearray, orientationarray = drone.travel_strafe_route(drone.getFirstRoute, 3, 120)
+    np.save('scan_round_strafe_3.npy', np.asarray(scanarray))
+    np.save('scan_round_strafe_3.npy1', np.asarray(posearray))
+    np.save('scan_round_strafe_3.npy2', np.asarray(orientationarray))
+
+    return
+   # for i in range(4):
+   #     read_lidarData()
+
+    #save_lidarData(points)
+    #if points.size == 0:
+    #    print('no points')
+    #    return
+    #This is our point cloud, currently T=1
+    P = load_lidarData()
+    #Aim is to estimate pose T_W_CT
+    print('Preprocessing')
+
+    fovup = 30
+    fovdown = 0
+=======
 def gatherLidarData():
     drone = LidarDrone()
     points = drone.prepare_and_read_lidarData()
@@ -165,6 +314,7 @@ def main():
     timestamp = 0
     fovup = 15
     fovdown = -15
+>>>>>>> 5f17f2333632b3dd1bbe1df9890ec608dda0c6e3
     fov = fovup - fovdown
     fovhor = 360
 
@@ -175,11 +325,29 @@ def main():
     points1 = load_lidarData()
     #So lets imagine points1 are for t=0
 
+<<<<<<< HEAD
     #and points2 are for t=1
 
     #that gives us:
     T_W_C0 = np.eye(4)
     
+=======
+<<<<<<< HEAD
+    #Create uvmap and normal map, these are for the frame
+    V_D = create_uv_map(w, h, fovup, fov, P)
+    N_D = create_n_map(w, h, V_D)
+
+    #now create uvmap and normal map for the model
+    V_M = create_empty_map(w, h)
+    N_M = create_empty_map(w, h)
+=======
+    points2 = load_lidarData(1)
+    #and points2 are for t=1
+
+    #that gives us:
+>>>>>>> 5f17f2333632b3dd1bbe1df9890ec608dda0c6e3
+
+>>>>>>> 5398885035472fb072462b53be33ffc52240e438
     print('1. Preprocessing')
     #Create uvmap and normal map, these are for the frame
     V_D = create_uv_map(w, h, fovup, fov, points1)
@@ -190,8 +358,24 @@ def main():
 
     #At the last pose estimate TW_C0
     print('3. Odometry Estimation')
+<<<<<<< HEAD
     #Missing input - Mactive, skip. 
 
+=======
+    #easy
+    T_W_C0 = np.eye(4)
+<<<<<<< HEAD
+    #Now we need to estimate T_C0_C1 (?)
+    #Which is used to update T_W_C1
+    # T_W_C1 = T_W_C0 * T_C0_C1
+    #Use ICP to align V_D with V_M
+    #Should yield T_C0_C1
+    M = SurfelMap()
+
+    img_n = create_image(h, w, N_D)
+    img_uv = create_image(h, w, V_D)
+=======
+>>>>>>> 5398885035472fb072462b53be33ffc52240e438
     print('4. Map Update')
     #A frame has vertex map, normal map, points, T_W_CX, residual map (?),
     #so current frame is V_D, N_D, points1, T_W_C0, NULL
@@ -277,6 +461,7 @@ def main():
 
     #img_n = create_image(h, w, N_D)
     #img_uv = create_image(h, w, V_D)
+>>>>>>> 5f17f2333632b3dd1bbe1df9890ec608dda0c6e3
 
   #  img = create_image(h, w, uvmap)
    # plt.imshow(img_n)
