@@ -13,7 +13,9 @@ Just to show the used settings file with lidar.
 					"X": 0, "Y": 0, "Z": -1,
 					"Roll": 0, "Pitch": 0, "Yaw" : 0,
 					"VerticalFOVUpper": 15,
-					"VerticalFOVLower": -15,					
+          "VerticalFOVLower": -15,
+          "HorizontalFOVStart": -180,
+          "HorizontalFOVEnd":  180,
 					"DrawDebugPoints": true
 				}
 	}

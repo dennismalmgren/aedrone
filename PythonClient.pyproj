@@ -5,7 +5,7 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>e2049e20-b6dd-474e-8bca-1c8dc54725aa</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <StartupFile>mapmaking\experiment1.py</StartupFile>
+    <StartupFile>mapmaking\glumpytest.py</StartupFile>
     <SearchPath>
     </SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
@@ -59,6 +59,15 @@
     </Compile>
     <Compile Include="computer_vision\setup_path.py" />
     <Compile Include="mapmaking\experiment1.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="mapmaking\freetypetest.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="mapmaking\glumpytest.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="mapmaking\render3d.py">
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="multirotor\gimbal.py" />
